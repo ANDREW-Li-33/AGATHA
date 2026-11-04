@@ -1,0 +1,23 @@
+# Cut-in scan thresholds (docs/cutin_scan.md). Not in stage1.toml: that file is hashed into
+# preprocessing_version, and tuning the scan must not invalidate Stage 1 outputs.
+# Offsets are against the ego's own driven path, the stand-in for its lane.
+
+[scan]
+clear_m = 2.5                  # onset: |lateral_offset_m| this far out is an adjacent lane, 3.5 to 3.7 m wide
+inside_m = 1.0                 # entry: |lateral_offset_m| this close is in the ego path
+max_crossing_s = 6.0           # entry within this of onset: lane changes take 0.5 to 6 s
+min_stay_s = 1.0               # in the path this long after entry, or to the track's end: crossing traffic goes through
+stay_m = 1.5                   # in the path, for the stay and from entry for required_decel_mps2: wider than inside_m
+max_gap_m = 30.0               # at entry, 0 < front_gap_m <= this
+max_heading_rad = 0.5          # at entry, roughly parallel to the ego, and own_move_lead_s before onset, to its path
+min_object_speed_mps = 2.0     # at entry, and own_move_lead_s before onset: a car leaving a parking spot is no cut-in
+min_ego_speed_mps = 3.0        # a car pulling in front of a parked ego is no sudden cut-in
+front_camera_x_m = 1.5         # about where FRONT sits ahead of the rear axle
+front_half_fov_deg = 25.0      # about FRONT's half field of view: close enough to need no calibration
+path_end_allowance_m = 8.0     # at entry, up to this past the ego's last pose: a car that makes it stop is ahead of it
+braking_window_s = 3.0         # required_decel_mps2 and ego_min_a_long_mps2 are over [onset, entry + this]
+own_move_lead_s = 2.0          # own_move_m's pose, and the car's heading and speed, this long before onset
+min_own_move_m = 1.0           # a smaller own move ranks last: the ego probably moved, not the car
+max_lateral_change_mps2 = 0.5  # pulling harder sideways off the own move's circle ranks last: the ego may have steered
+steer_window_end_s = 0.5       # the pull counts until this long before onset: the ego may react to a car's first drift
+fast_ego_speed_mps = 20.0      # left_at_speed counts vehicle boxes FRONT_LEFT shows whole while the ego is this fast

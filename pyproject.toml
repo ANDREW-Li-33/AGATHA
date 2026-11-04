@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agatha"
+version = "0.1.0"
+description = "AGATHA: driving incident detection, retrieval, and 3D reconstruction on the Waymo Open Dataset"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "imageio-ffmpeg>=0.6",
+    "numpy>=2.0",
+    "opencv-python-headless>=4.10,<5",
+    "pandas>=2.2",
+    "pyarrow>=17",
+    "pydantic>=2.8",
+]
+
+[project.optional-dependencies]
+# Only `agatha-vlm --model claude` needs it: `uv sync --extra claude`. PACE's environment leaves it out.
+claude = ["anthropic>=2.4.0"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[project.scripts]
+agatha-stage1 = "agatha.run_stage1:main"
+agatha-scan = "agatha.scan:main"
+agatha-vlm = "agatha.vlm.run:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,31 @@
+# Stage 2 configuration: the two-pass VLM. Pass 1 takes Stage 1's own windows from stage1.toml
+# ([stage1]: 5 s, 1 s overlap, 2 FPS, FRONT), so it sees what Stage 1 wrote. Not hashed into
+# preprocessing_version: nothing here changes Stage 1's outputs. A stored answer serves a request
+# only when [model] is unchanged, so editing it means new calls.
+
+[model]
+id = "claude-opus-5-5"
+effort = "medium"     # explicit, because the default differs between models. Thinking is always on with this one.
+max_tokens = 16000    # thinking and the answer together, within what the SDK allows a call that doesn't stream
+
+[pass2]
+margin_s = 1.0          # the window reaches this far past each side of the candidate's own span
+fps = 5.0
+retry_uncertain = true  # once, when the event comes back UNCERTAIN
+retry_fps = 10.0
+profile = "full"        # stage1.toml's [render.full]: Pass 2 sees higher-resolution images
+# Images per request, each camera's frames counted: a longer window takes a lower frame rate to keep to it.
+# It bounds cost too. Check the API's own limits on images and bytes per request before raising it.
+max_images = 100
+# A Pass 2 request's images as base64, in MB. The API turns away a request over 32 MB. Synthetic frames
+# are tens of KB, but real camera frames run several hundred KB, so 100 of them could pass it. A window
+# over this is built once more at a rate lowered in proportion: 24 leaves room for the text and for that
+# window coming out a little over.
+max_request_mb = 24
+
+[data]
+# Until this is true, a remote model (Claude) runs on synthetic segments only, whose names start with
+# synthetic_. The public tutorial segment is real data too. Local models aren't held to this.
+# Cleared on 2026-11-04: Waymo answered in writing that Stage 2 may send real camera frames and track
+# data to Claude's API. That covers the pipeline only: AI sessions still see only counts from PACE.
+real_data_cleared = true

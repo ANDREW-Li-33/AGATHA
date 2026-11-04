@@ -1,0 +1,54 @@
+# Scenario taxonomy. Every label is a yes/no question about one camera frame.
+#
+# `gt` says where ground truth comes from:
+#   human   -- hand-labeled with tools/label_app.py (needs semantics a 3D box can't give)
+#   derived -- computed exactly from 3D boxes + HD map (sql/derived_labels.sql)
+#   stats   -- Waymo segment metadata (context.stats.time_of_day / weather)
+#
+# Designing the taxonomy this way means only 3 of 9 labels cost human time, and the
+# 6 free labels act as a canary for how far the VLM can be trusted on the other 3.
+
+[[label]]
+name = "construction_zone"
+gt = "human"
+definition = "Active road work is visible: traffic cones, barrels, barricades, road-work signs, construction equipment, or workers in or right next to the roadway."
+
+[[label]]
+name = "road_change"
+gt = "human"
+definition = "The drivable layout differs from a normal map of this road: a travel lane is closed or obstructed by cones, barriers, or a stopped work vehicle, or traffic is shifted onto temporary lanes."
+
+[[label]]
+name = "emergency_vehicle"
+gt = "human"
+definition = "A police car, fire truck, or ambulance is visible (lights on or off)."
+
+[[label]]
+name = "pedestrian_in_roadway"
+gt = "derived"
+definition = "A pedestrian within about 40 m is on the vehicle roadway (in a travel lane or crosswalk), not on the sidewalk."
+
+[[label]]
+name = "cyclist_nearby"
+gt = "derived"
+definition = "A cyclist (bicycle or scooter rider) is within about 25 m."
+
+[[label]]
+name = "large_vehicle"
+gt = "derived"
+definition = "A bus, truck, trailer, or other vehicle longer than about 7 m or taller than about 3 m is within about 30 m."
+
+[[label]]
+name = "crowded_scene"
+gt = "derived"
+definition = "Five or more pedestrians are visible within about 30 m."
+
+[[label]]
+name = "night"
+gt = "stats"
+definition = "It is night: the sky is dark and the scene is lit mainly by street lights and headlights (not dawn or dusk)."
+
+[[label]]
+name = "rain"
+gt = "stats"
+definition = "It is raining or the road is visibly wet from rain."

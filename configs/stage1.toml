@@ -1,0 +1,52 @@
+# Stage 1 configuration. Hashed into preprocessing_version, so any change here
+# shows up in the provenance of every output.
+
+[dataset]
+version = "2.0.1"
+root = "$WOD_ROOT"        # <root>/<split>/<component>/<context_name>.parquet
+outputs = "$WOD_OUTPUTS"  # <outputs>/<context_name>/...
+
+[stage1]
+cameras = ["FRONT"]       # add FRONT_LEFT and FRONT_RIGHT here, with no code change
+
+# SceneWindow defaults for Pass 1. Pass 2 calls build_scene_window directly.
+window_s = 5.0
+stride_s = 4.0
+fps = 2.0
+context_s = 2.0           # track-only context on each side of the images
+max_objects = 20
+profile = "pass1"
+
+[motion]
+stationary_mps = 0.2      # Waymo's own threshold (metrics/breakdown_generator.cc)
+velocity_baseline_s = 0.2
+accel_baseline_s = 0.5
+max_baseline_s = 1.0      # past this, a difference spans too much to mean anything
+
+[ego]
+# Assumption, not a Waymo figure. Perception gives no ego box, and the vehicle
+# origin is the rear axle on the ground.
+rear_axle_to_front_m = 4.0
+
+[render.pass1]
+max_long_edge = 1092
+line_width = 2
+font_scale = 0.5
+jpeg_quality = 90
+
+[render.full]
+max_long_edge = 1920
+line_width = 3
+font_scale = 0.8
+jpeg_quality = 92
+
+# Unmeasured proposals: calibrate on the first segment, then freeze.
+[checks]
+residual_median_px = 5.0
+residual_p95_px = 30.0
+slow_residual_median_px = 1.0
+slow_residual_p95_px = 3.0
+slow_speed_mps = 1.0
+border_margin_px = 2.0
+gap_ms = 150.0
+speed_spike_mps = 60.0

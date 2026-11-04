@@ -1,0 +1,13 @@
+# Used through infra/pace/ice.sh, so ~/.ssh/config stays untouched.
+# Reuses the master connection Andrew opens with:
+#   ssh -M -S ~/.ssh/cm-ice ali497@login-ice.pace.gatech.edu
+# Every connection shares that socket, so all commands land on one login node.
+Host ice
+    HostName login-ice.pace.gatech.edu
+    User ali497
+    ControlMaster no
+    ControlPath ~/.ssh/cm-ice
+    # Fail at once if the master is gone: a fallback login would burn failed password attempts.
+    BatchMode yes
+    ServerAliveInterval 60
+    ServerAliveCountMax 5
