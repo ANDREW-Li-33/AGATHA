@@ -8,5 +8,7 @@ export WOD_OUTPUTS="$WOD_HOME/outputs"
 export UV_CACHE_DIR="$HOME/scratch/.uv_cache"
 export UV_PYTHON_INSTALL_DIR="$HOME/scratch/.uv_python"
 export UV_PROJECT_ENVIRONMENT="$HOME/scratch/venvs/agatha"
+export HF_HOME="$HOME/scratch/hf"             # Gemma 4's weights, for build_vllm.sbatch and serve_vlm.sh
+export XDG_CACHE_HOME="$HOME/scratch/.cache"  # vLLM's compiled kernels, among others
 export PATH="$HOME/google-cloud-sdk/bin:$PATH"
 module load uv/0.9.17

@@ -19,6 +19,8 @@ dependencies = [
 [project.optional-dependencies]
 # Only `agatha-vlm --model claude` needs it: `uv sync --extra claude`. PACE's environment leaves it out.
 claude = ["anthropic>=2.4.0"]
+# Database, private assets and the explorer; not needed by Stage 1 or 2.
+stage3 = ["psycopg[binary]>=3.2,<4", "supabase>=2,<3", "streamlit>=1.45,<2"]
 
 [dependency-groups]
 dev = ["pytest>=8"]
@@ -27,6 +29,8 @@ dev = ["pytest>=8"]
 agatha-stage1 = "agatha.run_stage1:main"
 agatha-scan = "agatha.scan:main"
 agatha-vlm = "agatha.vlm.run:main"
+agatha-pages = "agatha.vlm.pages:main"
+agatha-stage3 = "agatha.database.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

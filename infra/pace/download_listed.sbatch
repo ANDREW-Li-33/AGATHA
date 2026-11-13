@@ -2,21 +2,23 @@
 #SBATCH -J wod-listed
 #SBATCH -N1 --ntasks=1 --cpus-per-task=2 --mem=4G
 #SBATCH -t 4:00:00
-# usage: download_listed.sbatch cutin_top.txt|fast_left.txt
+# usage: download_listed.sbatch <list>.txt
 # Run order: download_labels.sbatch, then scan.sbatch, then download_listed.sbatch for each list
 # (cutin_top.txt, fast_left.txt), then review_cutins.sbatch for each list.
-# The camera components Stage 1 needs for each segment in a list the scan wrote. The labels and poses
-# are here already, and the split is whichever holds the labels. One gcloud storage invocation at a
+# A list is $WOD_HOME/selected/<list>.txt, named in [a-z0-9_]: the scan's two, or one pick_random.py
+# wrote, such as random15.txt, which then takes the same two jobs.
+# The camera components Stage 1 needs for each segment in the list. The labels and poses are here
+# already, and the split is whichever holds the labels. One gcloud storage invocation at a
 # time: it doesn't support parallel runs on a node. Lines print by number, never by name, so gcloud's
 # own output goes nowhere: its errors name the object. A failure doesn't stop the rest.
-# Up to 20 segments, twice --top. A single-segment download job took 16 s on ICE, so 4 hours
-# leaves wide room.
+# Up to 20 segments, twice --top, or random15.txt's 15. A single-segment download job took 16 s on
+# ICE, so 4 hours leaves wide room.
 set -euo pipefail
 source infra/pace/env.sh
-case ${1:-} in
-  cutin_top.txt | fast_left.txt) ;;
-  *) echo "usage: download_listed.sbatch cutin_top.txt|fast_left.txt" >&2; exit 2 ;;
-esac
+if ! [[ ${1:-} =~ ^[a-z0-9_]+\.txt$ ]]; then  # a name, never a path
+  echo "usage: download_listed.sbatch <list>.txt, a list in \$WOD_HOME/selected" >&2
+  exit 2
+fi
 bucket=gs://waymo_open_dataset_v_2_0_1
 line=0
 # The list comes in on descriptor 3, so nothing that reads stdin can eat its lines.

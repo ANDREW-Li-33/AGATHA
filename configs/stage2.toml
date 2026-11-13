@@ -1,7 +1,8 @@
 # Stage 2 configuration: the two-pass VLM. Pass 1 takes Stage 1's own windows from stage1.toml
 # ([stage1]: 5 s, 1 s overlap, 2 FPS, FRONT), so it sees what Stage 1 wrote. Not hashed into
-# preprocessing_version: nothing here changes Stage 1's outputs. A stored answer serves a request
-# only when [model] is unchanged, so editing it means new calls.
+# preprocessing_version: nothing here changes Stage 1's outputs. [model] is Claude's, [local] the
+# local model's. A stored answer serves a request only when its model's section is unchanged, so
+# editing it means new calls.
 
 [model]
 id = "claude-opus-5-5"
@@ -22,6 +23,27 @@ max_images = 100
 # over this is built once more at a rate lowered in proportion: 24 leaves room for the text and for that
 # window coming out a little over.
 max_request_mb = 24
+
+[local]
+# agatha-vlm --model local: an open-weight model that vLLM serves on the same PACE node
+# (infra/pace/serve_vlm.sh), so frames sent to it stay there. Gemma 4 31B is the largest Gemma 4: dense,
+# with image input and 256K context, Apache 2.0 and not gated. A stored local answer serves a request only
+# when id, max_tokens, image_tokens and temperature are unchanged. base_url isn't part of that: where the
+# server runs doesn't change an answer. serve_vlm.sh sizes the server from these and from [pass2]'s max_images.
+# Andrew chose the 26B A4B (25.2B in all, 3.8B active a token) for the L40S: Red Hat's FP8 copy of
+# google/gemma-4-26B-A4B-it, 27 GB, its vision tower kept at full precision, 99-102% of BF16 on Red Hat's evals.
+id = "RedHatAI/gemma-4-26B-A4B-it-FP8-dynamic"
+base_url = "http://127.0.0.1:8000/v1"  # serve_vlm.sh's address. Anywhere but this machine is refused.
+max_tokens = 8192   # the answer alone: nothing asks Gemma 4 to think, and the JSON schema leaves no room for it
+# Each image's visual token budget: 70, 140, 280 (Gemma 4's default), 560 or 1120. More reads finer
+# detail, at more compute and context. 100 images at 280 come to 28,000 tokens.
+image_tokens = 280
+# 0 is greedy decoding: one request, one answer. With no temperature, none is sent and vLLM samples with
+# the model's own settings, and on 2026-11-04 the same Pass 2 request (random15_1's INC-001) came back
+# REJECTED once and CONFIRMED once. On 2026-11-05 Andrew chose the same answer every time, and a rerun of
+# the 15 random scenes with it. A temperature is part of the request, so a different one is a different
+# request, its answers stored apart. At 0 an answer cut off at max_tokens isn't asked again: it would repeat.
+temperature = 0.0
 
 [data]
 # Until this is true, a remote model (Claude) runs on synthetic segments only, whose names start with

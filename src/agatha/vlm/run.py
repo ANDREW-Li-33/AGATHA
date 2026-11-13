@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -16,7 +17,7 @@ import sys
 import time
 import tomllib
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 
@@ -32,11 +33,11 @@ from ..report import _SYNTHETIC, context_label
 from ..run_stage1 import _QuietParser
 from ..scene_window import build_scene_window, default_windows, write_scene_window
 from ..store import SegmentOutputs, load_segment, segment_directory
-from .model import ClaudeModel, ModelFailure, NotSent, VisionModel
+from .model import ClaudeModel, LocalModel, ModelFailure, NotSent, VisionModel
 from .prompts import PASS1_SYSTEM, PASS2_SYSTEM, PROMPT_VERSION, request_content
 from .schema import (
     CATEGORIES, PASS1_SCHEMA, PASS2_SCHEMA, TAXONOMY, Candidate, IncidentReport, Pass1Answer, Pass2Answer,
-    SourceFrame, check_verdict, fit_candidate,
+    SourceFrame, check_verdict, fit_candidate, fit_verdict,
 )
 
 # Like preprocessing_version: the package version, and a hash of this subpackage's source.
@@ -47,7 +48,7 @@ _STEPS = {"pass1": (PASS1_SYSTEM, PASS1_SCHEMA, Pass1Answer), "pass2": (PASS2_SY
 
 @dataclass(frozen=True)
 class VlmConfig:
-    model: dict  # id, effort and max_tokens: a stored answer serves only these same settings
+    model: dict  # the answering model's settings, [model]'s or [local]'s: a stored answer serves only the same ones
     margin_s: float
     fps: float
     retry_uncertain: bool
@@ -56,12 +57,27 @@ class VlmConfig:
     max_images: int  # per Pass 2 request, counting each camera's frames
     max_request_mb: float  # a Pass 2 request's images, as base64: the API turns away a request over 32 MB
     real_data_cleared: bool
+    local: dict | None  # [local], for --model local: an open-weight model served on this machine
 
 
 def load_vlm_config(path) -> VlmConfig:
-    """configs/stage2.toml. Only a literal true clears real data: anything else, the string "true" too, fails closed."""
+    """configs/stage2.toml. Only a literal true clears real data: anything else, the string "true" too, fails closed.
+
+    [local]'s temperature is optional. When set, it must be a number, 0 or more, and it's kept as a float, so 0, 0.0
+    and -0.0 are one request. A ValueError says what's wrong.
+    """
     cfg = tomllib.loads(Path(path).read_text())
-    return VlmConfig(model=cfg["model"], **cfg["pass2"], real_data_cleared=cfg["data"]["real_data_cleared"] is True)
+    local = cfg.get("local")
+    if local is not None and "temperature" in local:
+        temperature = local["temperature"]
+        number = isinstance(temperature, (int, float)) and not isinstance(temperature, bool)  # a bool is an int too
+        if not (number and 0 <= temperature < math.inf):  # TOML has nan and inf, which aren't temperatures
+            raise ValueError(f"[local] temperature must be a number, 0 or more, not {temperature!r}")
+        # abs turns -0.0, which passes the check, into 0.0: the key's JSON writes -0.0, so it would key apart and
+        # resend everything (found on 2026-11-05).
+        local = {**local, "temperature": abs(float(temperature))}
+    return VlmConfig(model=cfg["model"], **cfg["pass2"], real_data_cleared=cfg["data"]["real_data_cleared"] is True,
+                     local=local)
 
 
 class GuardRefused(Exception):
@@ -241,14 +257,16 @@ class Run:
     def _verify(self, window: SceneWindow, hypothesis: Candidate) -> tuple[dict, tuple | None]:
         """(what became of one Pass 2 request, and if it was accepted (answer, window, the model that answered))."""
         outcome, key, window_file, answer, record = self._ask(window, hypothesis)
-        accepted = None
-        if answer is not None:
+        accepted, changes = None, []
+        if answer is not None:  # a stored answer too: it's fitted and checked again on every run
+            answer, changes = fit_verdict(answer, window)  # a time between two frames shown cites the nearer
             errors = check_verdict(answer, window, hypothesis)
             self._errors(key, "pass2", errors)
             outcome = "invalid" if errors else answer.status
             accepted = None if errors else (answer, window, record["served_by"])
         self.counts[f"pass2_{outcome}"] += 1
-        attempt = {"fps": round(window.requested_fps, 3), "window": window_file, "response": key, "outcome": outcome}
+        attempt = {"fps": round(window.requested_fps, 3), "window": window_file, "response": key, "outcome": outcome,
+                   "changes": changes}
         return attempt, accepted
 
     def pass2(self, hypothesis: Candidate) -> tuple[list[dict], dict, tuple | None]:
@@ -307,16 +325,31 @@ def main(argv=None) -> int:
     parser.add_argument("--vlm-config", default="configs/stage2.toml")
     parser.add_argument("--split", default="training", help="the segment's split, which segment.json must match")
     parser.add_argument("--context", default="synthetic_cut_in")
-    parser.add_argument("--model", choices=["claude", "dry-run"], default="dry-run",
-                        help="dry-run writes each request to <segment>/stage2/dry_run/ and sends nothing")
+    parser.add_argument("--model", choices=["local", "claude", "dry-run"], default="dry-run",
+                        help="local asks the vLLM server in [local] on this machine, claude sends to Claude's API, and "
+                             "dry-run writes each request to <segment>/stage2/dry_run/ and sends nothing")
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9_]+", args.context):  # synthetic_x/../<name> would print <name> as a label
         parser.error("context")
 
-    config, vlm = load_config(args.config), load_vlm_config(args.vlm_config)
+    config = load_config(args.config)
+    try:
+        vlm = load_vlm_config(args.vlm_config)
+    except ValueError as error:  # a negative temperature, say, or TOML it can't read: the message names no segment
+        parser.exit(2, f"agatha-vlm: --vlm-config: {error}\n")
     directory = segment_directory(config, SegmentRef(args.split, args.context))
-    model = ClaudeModel(vlm.model["id"], vlm.model["effort"], vlm.model["max_tokens"],
-                        dry_run=None if args.model == "claude" else directory / "stage2" / "dry_run")
+    if args.model == "local":
+        if vlm.local is None:
+            parser.error("local")
+        local = vlm.local
+        model = LocalModel(local["id"], local["base_url"], local["max_tokens"], local["image_tokens"],
+                           local.get("temperature"))
+        # Its answers key on its own settings, but not on base_url: where it's served doesn't change an answer. A
+        # temperature is in the key when set, and a config with none keys as it did before 2026-11-05.
+        vlm = replace(vlm, model={key: value for key, value in local.items() if key != "base_url"})
+    else:
+        model = ClaudeModel(vlm.model["id"], vlm.model["effort"], vlm.model["max_tokens"],
+                            dry_run=None if args.model == "claude" else directory / "stage2" / "dry_run")
     label = context_label(args.context)
     try:
         check_guard(model, args.context, vlm.real_data_cleared)  # before anything is read

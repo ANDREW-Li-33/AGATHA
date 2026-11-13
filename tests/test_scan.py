@@ -2162,3 +2162,39 @@ def test_both_list_jobs_take_twenty_segments_by_line_and_rank(tmp_path):
     assert result.stdout.splitlines() == [*(f"cutin_{rank}: agatha-stage1 exit 0" for rank in range(1, 21)),
                                           f"uv {REVIEW}"]
     assert not any(name in printed + result.stdout + result.stderr for name in names)
+
+
+def test_the_list_jobs_take_any_list_and_name_its_scenes_by_its_stem(tmp_path):
+    """random15.txt, which pick_random.py writes: random15_<rank>, and no scan review pages, which are cutin_top's."""
+    contexts = [PRIVATE["near"], PRIVATE["far"], PRIVATE["quiet"]]
+    result, _, calls = run_job("download_listed.sbatch", tmp_path / "download", "random15.txt", listed=contexts,
+                               list_name="random15.txt", files=[("training", "lidar_box", PRIVATE["near"]),
+                                                                ("validation", "lidar_box", PRIVATE["quiet"])])
+    assert result.returncode == 0 and len(calls) == 2 * len(CAMERA_COMPONENTS)
+    assert result.stdout.splitlines()[:-1] == ["line 1: exit 0", "line 2: exit 1", "line 3: exit 0"]
+    printed = result.stdout + result.stderr
+    result, calls, _ = run_job("review_cutins.sbatch", tmp_path / "review", "random15.txt", listed=contexts,
+                               list_name="random15.txt", files=[("training", "camera_image", PRIVATE["near"]),
+                                                                ("validation", "camera_image", PRIVATE["quiet"])])
+    assert result.returncode == 0
+    assert calls == [STAGE1.format("training", PRIVATE["near"]), STAGE1.format("validation", PRIVATE["quiet"])]
+    assert result.stdout.splitlines() == ["random15_1: agatha-stage1 exit 0", "random15_3: agatha-stage1 exit 1"]
+    assert not any(name in printed + result.stdout + result.stderr for name in contexts)
+
+
+@pytest.mark.parametrize("job", ["download_listed.sbatch", "review_cutins.sbatch"])
+@pytest.mark.parametrize("name", ["Random15.txt", "random-15.txt", "random15.TXT", "random15.txt.bak", "sub/r.txt",
+                                  ".txt"])
+def test_a_list_job_takes_only_a_lists_plain_name(tmp_path, job, name):
+    """[a-z0-9_]+.txt, as the list was written: never a path, and nothing that could pass for one."""
+    result, uv_calls, gcloud_calls = run_job(job, tmp_path, name, listed=[PRIVATE["near"]], list_name="r.txt",
+                                             files=[("training", "lidar_box", PRIVATE["near"]),
+                                                    ("training", "camera_image", PRIVATE["near"])])
+    assert result.returncode == 2 and result.stdout == "" and not uv_calls and not gcloud_calls
+    assert "usage" in result.stderr and PRIVATE["near"] not in result.stderr
+
+
+@pytest.mark.parametrize("job", ["download_listed.sbatch", "review_cutins.sbatch"])
+def test_a_list_job_says_how_to_name_a_list(job):
+    text = (REPO / "infra" / "pace" / job).read_text()
+    assert f"# usage: {job} <list>.txt\n" in text and "random15.txt" in text and "[a-z0-9_]" in text

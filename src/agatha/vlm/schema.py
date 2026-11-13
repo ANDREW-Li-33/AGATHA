@@ -5,6 +5,7 @@ An answer is trusted once it parses into these strict models and the checks find
 
 from __future__ import annotations
 
+import bisect
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -145,6 +146,42 @@ def fit_candidate(candidate: Candidate, window: SceneWindow) -> tuple[Candidate,
         changes.append(f"{span[0]} to {span[1]} s: clipped to the window")
     aliases = [alias for alias in candidate.object_aliases if alias in known]
     return candidate.model_copy(update={"start_s": start_s, "end_s": end_s, "object_aliases": aliases}), changes, errors
+
+
+def fit_verdict(answer: Pass2Answer, window: SceneWindow) -> tuple[Pass2Answer, list[str]]:
+    """(the Pass 2 answer with its cited frames fitted to the frames shown and any "ego" alias dropped, what
+    fitting changed)."""
+    # The frames shown run at 5 FPS and the track JSON at 10 Hz, so a model can cite a time between two frames:
+    # Gemma cited FRONT at 12.6 s between 12.5 and 12.7 on 2026-11-04, the only fault in 3 of 69 answers. Such a
+    # time moves to the nearer frame of its camera, the earlier on a tie. Nothing else moves: a time before a
+    # camera's first frame or after its last, or an unknown camera, is left for check_verdict to refuse.
+    shown: dict[str, set[float]] = {}
+    for frame in window.frames:
+        shown.setdefault(frame.camera, set()).add(round(frame.t_s, 2))
+    frames, changes, seen = [], [], set()
+    for cited in answer.source_frames:
+        times, t_s = sorted(shown.get(cited.camera, ())), round(cited.t_s, 2)
+        if times and t_s not in times and times[0] <= t_s <= times[-1]:
+            after = bisect.bisect(times, t_s)
+            earlier, later = times[after - 1], times[after]
+            # In hundredths of a second, so a tie is exact: 12.6 lies as far from 12.5 as from 12.7.
+            nearest = earlier if round((t_s - earlier) * 100) <= round((later - t_s) * 100) else later
+            changes.append(f"{cited.camera} at {cited.t_s} s: cited as {nearest} s, the nearest frame shown")
+            cited = cited.model_copy(update={"t_s": nearest})
+        key = (cited.camera, round(cited.t_s, 2))
+        if key in seen:  # as when a moved frame lands on one cited already: the first stays, in its place
+            changes.append(f"{cited.camera} at {key[1]} s: cited already, so dropped")
+            continue
+        seen.add(key)
+        frames.append(cited)
+    # The ego has no alias: its own motion is in the tracks JSON, never among the objects. At temperature 0 Gemma
+    # named it "ego" among a HARD_BRAKING answer's objects on 2026-11-05 (random15_12), the only fault in that
+    # answer, and a resend would repeat it. So the name is dropped, unless the window has an object by that name.
+    known = _known(window)
+    ego = [alias for alias in answer.object_aliases if alias.lower() == "ego" and alias not in known]
+    changes += [f"dropped alias {alias}: the ego has no alias" for alias in ego]
+    update = {"source_frames": frames, "object_aliases": [a for a in answer.object_aliases if a not in ego]}
+    return (answer.model_copy(update=update) if changes else answer), changes
 
 
 def check_verdict(answer: Pass2Answer, window: SceneWindow, hypothesis: Candidate) -> list[str]:
